@@ -31,7 +31,26 @@ public class BoardArchivalFunction
                 return;
             }
 
-            await _archivalService.ArchiveBoardAsync(archivalMessage, context.CancellationToken);
+            switch (archivalMessage.JobType)
+            {
+                case "BoardArchival":
+                    await _archivalService.ArchiveBoardAsync(archivalMessage, context.CancellationToken);
+                    break;
+                case "BoardDearchival":
+                    if (_archivalService is IBoardDearchivalService dearchivalService)
+                    {
+                        await dearchivalService.DearchiveBoardAsync(archivalMessage, context.CancellationToken);
+                    }
+                    else
+                    {
+                        _logger.LogError("Dearchival service not implemented.");
+                        throw new NotImplementedException("Dearchival service not implemented.");
+                    }
+                    break;
+                default:
+                    _logger.LogWarning($"Unknown JobType: {archivalMessage.JobType}");
+                    break;
+            }
         }
         catch (Exception ex)
         {

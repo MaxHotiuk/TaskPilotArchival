@@ -9,6 +9,7 @@ public interface IBlobStorageService
     string GenerateBlobSasToken(string fileName, TimeSpan expiration, BlobSasPermissions permissions);
     string GenerateAccountSasToken(TimeSpan expiration, AccountSasPermissions permissions, AccountSasResourceTypes resourceTypes);
     Task<string> UploadFileAsync(Stream fileStream, string fileName, string contentType, CancellationToken cancellationToken = default);
+    Task<Stream> DownloadFileAsync(string fileName, CancellationToken cancellationToken = default);
     Task<Stream?> GetFileAsync(string fileName, CancellationToken cancellationToken = default);
     Task DeleteFileAsync(string fileName, CancellationToken cancellationToken = default);
     Task<bool> FileExistsAsync(string fileName, CancellationToken cancellationToken = default);
