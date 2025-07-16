@@ -1,3 +1,5 @@
+using Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
@@ -15,9 +17,13 @@ var builder = FunctionsApplication.CreateBuilder(args);
 builder.ConfigureFunctionsWebApplication();
 
 builder.Services
-
     .AddApplicationInsightsTelemetryWorkerService()
-    .ConfigureFunctionsApplicationInsights();
+    .ConfigureFunctionsApplicationInsights()
+    // Register ApplicationDbContext with SQL Server
+    .AddDbContext<ApplicationDbContext>(options =>
+        options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer")));
+
+    
 
 builder.Services.Configure<Infrastructure.Configuration.BlobStorageOptions>(
     builder.Configuration.GetSection("BlobStorage"));
@@ -25,6 +31,14 @@ builder.Services.Configure<Infrastructure.Configuration.BlobStorageOptions>(
 // Register services and repositories using interfaces
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IBoardArchivalService, BoardArchivalService>();
+
+// Register repository implementations
+builder.Services.AddScoped<IBoardRepository, BoardRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ITaskRepository, TaskRepository>();
+builder.Services.AddScoped<ICommentRepository, CommentRepository>();
+builder.Services.AddScoped<IStateRepository, StateRepository>();
+builder.Services.AddScoped<IBoardMemberRepository, BoardMemberRepository>();
 
 // Cosmos DB configuration
 builder.Services.AddScoped(sp =>

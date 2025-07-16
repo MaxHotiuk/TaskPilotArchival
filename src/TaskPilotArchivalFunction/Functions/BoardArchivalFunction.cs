@@ -2,16 +2,16 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using Core.Models;
-using Infrastructure.Services;
+using Core.Abstractions.Services;
 
 namespace TaskPilotArchivalFunction.Functions;
 
 public class BoardArchivalFunction
 {
-    private readonly BoardArchivalService _archivalService;
+    private readonly IBoardArchivalService _archivalService;
     private readonly ILogger<BoardArchivalFunction> _logger;
 
-    public BoardArchivalFunction(BoardArchivalService archivalService, ILogger<BoardArchivalFunction> logger)
+    public BoardArchivalFunction(IBoardArchivalService archivalService, ILogger<BoardArchivalFunction> logger)
     {
         _archivalService = archivalService;
         _logger = logger;
