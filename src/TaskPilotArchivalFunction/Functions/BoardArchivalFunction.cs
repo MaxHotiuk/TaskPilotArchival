@@ -17,7 +17,7 @@ public class BoardArchivalFunction
         _logger = logger;
     }
 
-    [Function("BoardArchivalFunction")]
+    [Function(nameof(BoardArchivalFunction))]
     public async Task RunAsync([
         ServiceBusTrigger("board-archival-queue", Connection = "ServiceBusConnection")
     ] string message, FunctionContext context)

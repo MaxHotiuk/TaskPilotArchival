@@ -23,17 +23,17 @@ builder.Services.Configure<Infrastructure.Configuration.BlobStorageOptions>(
     builder.Configuration.GetSection("BlobStorage"));
 
 // Register services and repositories using interfaces
-builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();
-builder.Services.AddSingleton<IBoardArchivalService, BoardArchivalService>();
+builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+builder.Services.AddScoped<IBoardArchivalService, BoardArchivalService>();
 
 // Cosmos DB configuration
-builder.Services.AddSingleton(sp =>
+builder.Services.AddScoped(sp =>
 {
     var configuration = sp.GetRequiredService<IConfiguration>();
     var cosmosConnectionString = configuration["CosmosDbConnection"] ?? throw new InvalidOperationException("CosmosDbConnection not configured");
     return new CosmosClient(cosmosConnectionString);
 });
-builder.Services.AddSingleton(sp =>
+builder.Services.AddScoped(sp =>
 {
     var configuration = sp.GetRequiredService<IConfiguration>();
     var cosmosDatabaseId = configuration["CosmosDbDatabaseId"] ?? "TaskPilotArchival";
@@ -44,7 +44,7 @@ builder.Services.AddSingleton(sp =>
 });
 
 // Register repository interface
-builder.Services.AddSingleton<IArchivalJobRepository>(sp =>
+builder.Services.AddScoped<IArchivalJobRepository>(sp =>
     sp.GetRequiredService<ArchivalJobRepository>());
 
 builder.Build().Run();
