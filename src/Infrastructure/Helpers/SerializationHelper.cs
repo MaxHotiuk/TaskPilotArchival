@@ -8,4 +8,8 @@ public static class SerializationHelper
     {
         return JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true });
     }
+    public static T DeserializeFromJson<T>(Stream stream)
+    {
+        return JsonSerializer.Deserialize<T>(stream) ?? throw new InvalidOperationException("Deserialization returned null");
+    }
 }

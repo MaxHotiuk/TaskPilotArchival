@@ -186,4 +186,12 @@ public class BlobStorageService : IBlobStorageService
             UploadedAt = properties.CreatedOn.UtcDateTime
         };
     }
+
+    public async Task<Stream> DownloadFileAsync(string fileName, CancellationToken cancellationToken = default)
+    {
+        var blobClient = await GetBlobClientAsync(fileName, cancellationToken);
+        if (blobClient == null)
+            throw new FileNotFoundException($"File '{fileName}' not found in blob storage.");
+        return await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
+    }
 }
