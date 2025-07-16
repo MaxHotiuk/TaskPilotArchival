@@ -1,3 +1,5 @@
+using Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
@@ -15,9 +17,13 @@ var builder = FunctionsApplication.CreateBuilder(args);
 builder.ConfigureFunctionsWebApplication();
 
 builder.Services
-
     .AddApplicationInsightsTelemetryWorkerService()
-    .ConfigureFunctionsApplicationInsights();
+    .ConfigureFunctionsApplicationInsights()
+    // Register ApplicationDbContext with SQL Server
+    .AddDbContext<ApplicationDbContext>(options =>
+        options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer")));
+
+    
 
 builder.Services.Configure<Infrastructure.Configuration.BlobStorageOptions>(
     builder.Configuration.GetSection("BlobStorage"));

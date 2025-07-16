@@ -10,11 +10,16 @@ public class BoardArchivalService : IBoardArchivalService
 {
     private readonly BlobStorageService _blobStorageService;
     private readonly ILogger<BoardArchivalService> _logger;
+    private readonly ApplicationDbContext _dbContext;
 
-    public BoardArchivalService(BlobStorageService blobStorageService, ILogger<BoardArchivalService> logger)
+    public BoardArchivalService(
+        BlobStorageService blobStorageService,
+        ILogger<BoardArchivalService> logger,
+        ApplicationDbContext dbContext)
     {
         _blobStorageService = blobStorageService;
         _logger = logger;
+        _dbContext = dbContext;
     }
 
     public async Task ArchiveBoardAsync(BoardArchivalMessage message, CancellationToken cancellationToken = default)
