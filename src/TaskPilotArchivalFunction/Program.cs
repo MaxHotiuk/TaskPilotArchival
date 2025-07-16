@@ -32,6 +32,14 @@ builder.Services.Configure<Infrastructure.Configuration.BlobStorageOptions>(
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IBoardArchivalService, BoardArchivalService>();
 
+// Register repository implementations
+builder.Services.AddScoped<IBoardRepository, BoardRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ITaskRepository, TaskRepository>();
+builder.Services.AddScoped<ICommentRepository, CommentRepository>();
+builder.Services.AddScoped<IStateRepository, StateRepository>();
+builder.Services.AddScoped<IBoardMemberRepository, BoardMemberRepository>();
+
 // Cosmos DB configuration
 builder.Services.AddScoped(sp =>
 {
