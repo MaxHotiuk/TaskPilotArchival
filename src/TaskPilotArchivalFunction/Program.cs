@@ -23,16 +23,49 @@ builder.Services
     .AddDbContext<ApplicationDbContext>(options =>
         options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer")));
 
-    
+// Cosmos DB client (shared across all Cosmos-backed services)
+builder.Services.AddSingleton(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var cosmosConnectionString = configuration["CosmosDbConnection"]
+        ?? throw new InvalidOperationException("CosmosDbConnection not configured");
+    return new CosmosClient(cosmosConnectionString, new CosmosClientOptions
+    {
+        SerializerOptions = new CosmosSerializationOptions
+        {
+            PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase
+        }
+    });
+});
 
-builder.Services.Configure<Infrastructure.Configuration.BlobStorageOptions>(
-    builder.Configuration.GetSection("BlobStorage"));
+// ArchivalJob repository — uses the existing ArchivalJobs container
+builder.Services.AddScoped(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var cosmosDatabaseId = configuration["CosmosDbDatabaseId"] ?? "TaskPilotArchival";
+    var cosmosContainerId = configuration["CosmosDbContainerId"] ?? "ArchivalJobs";
+    var cosmosClient = sp.GetRequiredService<CosmosClient>();
+    var logger = sp.GetRequiredService<ILogger<ArchivalJobRepository>>();
+    return new ArchivalJobRepository(cosmosClient, cosmosDatabaseId, cosmosContainerId, logger);
+});
+builder.Services.AddScoped<IArchivalJobRepository>(sp =>
+    sp.GetRequiredService<ArchivalJobRepository>());
 
-// Register services and repositories using interfaces
-builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+// Cosmos archival storage service — uses the ArchivedBoards container
+builder.Services.AddScoped<ICosmosArchivalStorageService>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var cosmosDatabaseId = configuration["CosmosDbDatabaseId"] ?? "TaskPilotArchival";
+    var cosmosContainerId = configuration["CosmosDbArchivedBoardsContainerId"] ?? "ArchivedBoards";
+    var cosmosClient = sp.GetRequiredService<CosmosClient>();
+    var logger = sp.GetRequiredService<ILogger<CosmosArchivalStorageService>>();
+    return new CosmosArchivalStorageService(cosmosClient, cosmosDatabaseId, cosmosContainerId, logger);
+});
+
+// Board archival service
 builder.Services.AddScoped<IBoardArchivalService, BoardArchivalService>();
 
-// Register repository implementations
+// Repository implementations
 builder.Services.AddScoped<IBoardRepository, BoardRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
@@ -40,25 +73,21 @@ builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 builder.Services.AddScoped<IStateRepository, StateRepository>();
 builder.Services.AddScoped<IBoardMemberRepository, BoardMemberRepository>();
 
-// Cosmos DB configuration
-builder.Services.AddScoped(sp =>
-{
-    var configuration = sp.GetRequiredService<IConfiguration>();
-    var cosmosConnectionString = configuration["CosmosDbConnection"] ?? throw new InvalidOperationException("CosmosDbConnection not configured");
-    return new CosmosClient(cosmosConnectionString);
-});
-builder.Services.AddScoped(sp =>
-{
-    var configuration = sp.GetRequiredService<IConfiguration>();
-    var cosmosDatabaseId = configuration["CosmosDbDatabaseId"] ?? "TaskPilotArchival";
-    var cosmosContainerId = configuration["CosmosDbContainerId"] ?? "ArchivalJobs";
-    var cosmosClient = sp.GetRequiredService<CosmosClient>();
-    var logger = sp.GetRequiredService<ILogger<IArchivalJobRepository>>();
-    return new ArchivalJobRepository(cosmosClient, cosmosDatabaseId, cosmosContainerId, (ILogger<ArchivalJobRepository>)logger);
-});
+var host = builder.Build();
 
-// Register repository interface
-builder.Services.AddScoped<IArchivalJobRepository>(sp =>
-    sp.GetRequiredService<ArchivalJobRepository>());
+// Ensure the Cosmos DB database and ArchivedBoards container exist before the host starts
+// processing messages. This runs once at startup and is a no-op if already provisioned.
+using (var scope = host.Services.CreateScope())
+{
+    var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+    var cosmosClient = scope.ServiceProvider.GetRequiredService<CosmosClient>();
 
-builder.Build().Run();
+    var databaseId = configuration["CosmosDbDatabaseId"] ?? "TaskPilotArchival";
+    var archivedBoardsContainerId = configuration["CosmosDbArchivedBoardsContainerId"] ?? "ArchivedBoards";
+
+    var databaseResponse = await cosmosClient.CreateDatabaseIfNotExistsAsync(databaseId);
+    await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+        new ContainerProperties(archivedBoardsContainerId, partitionKeyPath: "/partitionKey"));
+}
+
+host.Run();
