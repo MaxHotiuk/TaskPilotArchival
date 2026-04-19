@@ -1,5 +1,5 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Infrastructure.Helpers;
 using Core.Models;
 using Core.Abstractions.Repositories;
 using Core.Abstractions.Services;
@@ -11,30 +11,33 @@ namespace Infrastructure.Services;
 
 public class BoardArchivalService : IBoardArchivalService, IBoardDearchivalService
 {
-    private readonly IBlobStorageService _blobStorageService;
+    private readonly ICosmosArchivalStorageService _cosmosArchivalStorageService;
     private readonly ILogger<BoardArchivalService> _logger;
     private readonly IBoardRepository _boardRepository;
     private readonly ITaskRepository _taskRepository;
     private readonly ICommentRepository _commentRepository;
     private readonly IStateRepository _stateRepository;
     private readonly IBoardMemberRepository _boardMemberRepository;
+    private readonly ApplicationDbContext _dbContext;
 
     public BoardArchivalService(
-        IBlobStorageService blobStorageService,
+        ICosmosArchivalStorageService cosmosArchivalStorageService,
         ILogger<BoardArchivalService> logger,
         IBoardRepository boardRepository,
         ITaskRepository taskRepository,
         ICommentRepository commentRepository,
         IStateRepository stateRepository,
-        IBoardMemberRepository boardMemberRepository)
+        IBoardMemberRepository boardMemberRepository,
+        ApplicationDbContext dbContext)
     {
-        _blobStorageService = blobStorageService;
+        _cosmosArchivalStorageService = cosmosArchivalStorageService;
         _logger = logger;
         _boardRepository = boardRepository;
         _taskRepository = taskRepository;
         _commentRepository = commentRepository;
         _stateRepository = stateRepository;
         _boardMemberRepository = boardMemberRepository;
+        _dbContext = dbContext;
     }
 
     public async System.Threading.Tasks.Task ArchiveBoardAsync(BoardArchivalMessage message, CancellationToken cancellationToken = default)
@@ -43,9 +46,9 @@ public class BoardArchivalService : IBoardArchivalService, IBoardDearchivalServi
         {
             var (board, states, tasks, comments, members) = await LoadBoardDataAsync(message.BoardId, cancellationToken);
             var boardDto = MapToArchivalDto(board, states, tasks, comments, members);
-            await SerializeAndUploadAsync(boardDto, cancellationToken);
+            await _cosmosArchivalStorageService.SaveArchivedBoardAsync(boardDto, cancellationToken);
             MarkBoardAsArchived(board);
-            DeleteBoardRelatedEntities(comments, tasks, states, members);
+            await DeleteBoardRelatedEntitiesAsync(comments, tasks, states, members, cancellationToken);
             await _boardRepository.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -122,17 +125,6 @@ public class BoardArchivalService : IBoardArchivalService, IBoardDearchivalServi
         };
     }
 
-    private async System.Threading.Tasks.Task SerializeAndUploadAsync(BoardArchivalDto boardDto, CancellationToken cancellationToken)
-    {
-        var json = SerializationHelper.SerializeToJson(boardDto);
-        var blobName = $"archivals/{boardDto.BoardId}_{DateTime.UtcNow:yyyyMMddHHmmss}.json";
-        using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)))
-        {
-            await _blobStorageService.UploadFileAsync(stream, blobName, "application/json", cancellationToken);
-        }
-        _logger.LogInformation("Board archived and uploaded to blob: {BlobName}", blobName);
-    }
-
     private void MarkBoardAsArchived(Board board)
     {
         if (!board.IsArchived)
@@ -143,12 +135,21 @@ public class BoardArchivalService : IBoardArchivalService, IBoardDearchivalServi
         }
     }
 
-    private void DeleteBoardRelatedEntities(
+    private async System.Threading.Tasks.Task DeleteBoardRelatedEntitiesAsync(
         List<Comment> comments,
         List<Task> tasks,
         List<State> states,
-        List<BoardMember> members)
+        List<BoardMember> members,
+        CancellationToken cancellationToken)
     {
+        if (tasks.Count > 0)
+        {
+            var taskIds = string.Join(",", tasks.Select(t => $"'{t.Id}'")); 
+            await _dbContext.Database.ExecuteSqlRawAsync(
+                $"DELETE FROM [ChatMessages] WHERE [TaskId] IN ({taskIds})",
+                cancellationToken);
+        }
+
         foreach (var comment in comments)
         {
             _commentRepository.Remove(comment);
@@ -171,42 +172,19 @@ public class BoardArchivalService : IBoardArchivalService, IBoardDearchivalServi
     {
         try
         {
-            var latestBlob = await GetLatestArchivalBlobNameAsync(message.BoardId, cancellationToken);
-            var boardDto = await DownloadAndDeserializeBoardDtoAsync(latestBlob, cancellationToken);
+            var boardDto = await _cosmosArchivalStorageService.GetArchivedBoardAsync(message.BoardId, cancellationToken);
 
             await RestoreBoardEntitiesAsync(boardDto, cancellationToken);
             await _boardRepository.SaveChangesAsync(cancellationToken);
 
-            await _blobStorageService.DeleteFileAsync(latestBlob, cancellationToken);
+            await _cosmosArchivalStorageService.DeleteArchivedBoardAsync(message.BoardId, cancellationToken);
 
-            _logger.LogInformation("Board {BoardId} dearchived and restored from blob: {BlobName}", message.BoardId, latestBlob);
+            _logger.LogInformation("Board {BoardId} dearchived and restored from Cosmos DB.", message.BoardId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error dearchiving board {BoardId}", message.BoardId);
             throw;
-        }
-    }
-
-    private async Task<string> GetLatestArchivalBlobNameAsync(Guid boardId, CancellationToken cancellationToken)
-    {
-        var prefix = $"archivals/{boardId}_";
-        var blobs = await _blobStorageService.ListFilesAsync(prefix, cancellationToken);
-        var latestBlob = blobs
-            .OrderByDescending(b => b)
-            .FirstOrDefault();
-        if (latestBlob == null)
-        {
-            throw new InvalidOperationException($"No archival blob found for board {boardId}");
-        }
-        return latestBlob;
-    }
-
-    private async Task<BoardArchivalDto> DownloadAndDeserializeBoardDtoAsync(string blobName, CancellationToken cancellationToken)
-    {
-        using (var stream = await _blobStorageService.DownloadFileAsync(blobName, cancellationToken))
-        {
-            return SerializationHelper.DeserializeFromJson<BoardArchivalDto>(stream);
         }
     }
 
